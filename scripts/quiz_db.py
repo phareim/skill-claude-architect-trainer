@@ -2,12 +2,14 @@
 """SQLite store for the claude-quiz skill.
 
 Subcommands:
-  init                          create DB + schema if missing
+  banner                        one-line memory signal (plain text, used at session start)
+  init                          create DB + schema (also auto-runs on every other command)
   start-session                 record a new quiz session
   log                           log one question + judgment
   stats                         aggregate counts + per-domain pass rate
   weakest                       3 weakest domains by pass rate (for theme picking)
-  recent [N]                    last N questions
+  summary [--limit N]           recent questions with answer + coaching readback
+  recent [N]                    last N question previews
   show <id>                     full detail of one question
   export <path>                 dump all questions as JSON
 
@@ -83,6 +85,72 @@ def emit(obj) -> None:
 def cmd_init(_):
     connect().close()
     emit({"ok": True, "db": str(DB_PATH)})
+
+
+def cmd_banner(_):
+    """One-line plain-text memory signal — printed verbatim by SKILL.md.
+
+    Plain text (not JSON) so it can be surfaced to the user as-is.
+    """
+    con = connect()
+    total = con.execute("SELECT COUNT(*) AS n FROM questions").fetchone()["n"]
+    if total == 0:
+        print("Quiz memory: empty — this is your first question.")
+        return
+    correct = con.execute(
+        "SELECT COUNT(*) AS n FROM questions WHERE judgment='correct'"
+    ).fetchone()["n"]
+    partial = con.execute(
+        "SELECT COUNT(*) AS n FROM questions WHERE judgment='partial'"
+    ).fetchone()["n"]
+    weakest = con.execute(
+        """SELECT domain,
+                  ROUND(1.0 * SUM(CASE WHEN judgment='correct' THEN 1 ELSE 0 END) / COUNT(*), 2) AS rate,
+                  COUNT(*) AS asked
+           FROM questions
+           WHERE judgment IS NOT NULL AND judgment != 'skipped'
+           GROUP BY domain
+           HAVING asked >= 1
+           ORDER BY rate ASC, asked DESC
+           LIMIT 1"""
+    ).fetchone()
+    last = con.execute(
+        "SELECT asked_at FROM questions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+    pct = int(round(100 * correct / total)) if total else 0
+    parts = [f"Quiz memory: {total} answered", f"{correct} correct ({pct}%)"]
+    if partial:
+        parts.append(f"{partial} partial")
+    if weakest and weakest["rate"] is not None and weakest["asked"] >= 2:
+        parts.append(f"weakest: Domain {weakest['domain']}")
+    if last:
+        parts.append(f"last seen: {last['asked_at']}")
+    print(" · ".join(parts))
+
+
+def cmd_summary(args):
+    """Recent questions with full coaching readback — for review mode."""
+    con = connect()
+    where, params = [], []
+    if args.domain:
+        where.append("domain = ?")
+        params.append(args.domain)
+    if args.judgment:
+        where.append("judgment = ?")
+        params.append(args.judgment)
+    sql = (
+        "SELECT id, asked_at, domain, task, topic, difficulty, judgment, "
+        "question, expected_answer, user_answer, reasoning_notes, "
+        "coaching_notes, related_context "
+        "FROM questions"
+    )
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(args.limit)
+    rows = con.execute(sql, params).fetchall()
+    emit([dict(r) for r in rows])
 
 
 def cmd_start_session(args):
@@ -208,7 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="quiz_db")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="create DB + schema if missing")
+    sub.add_parser("init", help="create DB + schema (auto-runs on other commands too)")
+    sub.add_parser("banner", help="one-line plain-text memory signal for session start")
 
     s = sub.add_parser("start-session", help="record a new quiz session")
     s.add_argument("--name")
@@ -238,6 +307,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, default=3)
     s.add_argument("--min-asked", type=int, default=1)
 
+    s = sub.add_parser("summary",
+                       help="recent questions with full coaching readback (review mode)")
+    s.add_argument("--limit", type=int, default=10)
+    s.add_argument("--domain", help="filter by domain")
+    s.add_argument("--judgment",
+                   choices=["correct", "partial", "incorrect", "skipped"],
+                   help="filter by judgment")
+
     s = sub.add_parser("recent", help="last N questions")
     s.add_argument("n", type=int, nargs="?", default=10)
 
@@ -254,10 +331,12 @@ def main() -> None:
     args = build_parser().parse_args()
     handlers = {
         "init": cmd_init,
+        "banner": cmd_banner,
         "start-session": cmd_start_session,
         "log": cmd_log,
         "stats": cmd_stats,
         "weakest": cmd_weakest,
+        "summary": cmd_summary,
         "recent": cmd_recent,
         "show": cmd_show,
         "export": cmd_export,
