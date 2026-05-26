@@ -22,7 +22,7 @@ The user is preparing for a real certification exam. Practice tests alone don't 
    - `domains` / `table` / `dashboard` → print the canonical 5-domain table with weights and per-domain answer counts (asked, correct, partial, incorrect, pass rate); no question
    - `stats` / `progress` → numeric overview (counts + per-domain pass rates), no question
    - `summary` / `feedback` / `review` → narrative readback of recent questions, your answers, and the coaching notes; no question. `review` defaults to this; if ambiguous, ask the user which they meant.
-   - `weakest` → ask a question in the domain with the worst pass rate
+   - `weakest` → ask a question in the user's weakest area. *Weakest is two-tier:* first an *accuracy* weak spot (a domain where the user has actually made mistakes, lowest pass rate first); if no mistakes exist yet, fall back to a *coverage* gap (a canonical domain with zero answered questions, highest exam weight first). If everything is both covered and at 100%, just pick by exam weighting.
    - any combination (e.g., `claude-quiz domain 4 hard`)
 
 2. **Show the memory banner.** Run `python3 scripts/quiz_db.py banner` and surface its single-line output **verbatim** to the user at the top of the response. Examples:
@@ -37,7 +37,7 @@ The user is preparing for a real certification exam. Practice tests alone don't 
    - coordinator/subagent code, `Task` tool, hooks, agentic loops → Domain 1
    - JSON schemas, `tool_use`, few-shot, validation/retry, batch API → Domain 4
    - long-session summarisation, scratchpads, escalation, provenance → Domain 5
-   - none of the above → tell the user "no clear context, picking broadly" and pick by exam weighting (D1 27%, D2 18%, D3 20%, D4 20%, D5 15%), biased toward the user's weakest domain (`python3 scripts/quiz_db.py weakest`)
+   - none of the above → tell the user "no clear context, picking broadly" and pick by exam weighting (D1 27%, D2 18%, D3 20%, D4 20%, D5 15%), biased toward the user's weakest area (`python3 scripts/quiz_db.py weakest` — see the two-tier definition under the invocation patterns above; **never** pick a domain whose pass rate is 100% as "weakest")
 
 4. **Pick a task statement within the domain.** Open `references/exam-domains.md`, find the most relevant 1.X / 2.X / etc. given the conversation hook.
 
@@ -129,7 +129,10 @@ python3 scripts/quiz_db.py recent 10
 Render a short readout for the user:
 - Total questions answered, strict pass rate, lenient pass rate (correct + partial)
 - Per-domain breakdown — which domains the user is strong/weak in
-- Top weakest area + a one-line suggestion (e.g., "consider studying Task 2.2 — structured MCP errors — before next session")
+- Top weak area based on `weakest`'s `kind` field:
+  - `kind: accuracy` → real mistake — name the domain + pass rate + a one-line suggestion (e.g., "Domain 2 at 50% — review Task 2.2 structured MCP errors")
+  - `kind: coverage` → no mistakes yet, but list the top 1–2 untouched domains as coverage gaps (e.g., "no mistakes yet — biggest coverage gaps: Domain 1 (Agentic Architecture, 27%) and Domain 4 (Prompt Engineering, 20%)")
+  - `kind: none` → "all five domains covered with a clean pass rate — keep drilling for depth"
 - Last 5 question previews
 
 Then ask whether they want to drill the weakest area or pick something else.

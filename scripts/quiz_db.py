@@ -98,6 +98,54 @@ def cmd_init(_):
     emit({"ok": True, "db": str(DB_PATH)})
 
 
+def weak_spots(con):
+    """Return (kind, rows) where kind is one of:
+
+    - 'accuracy' — at least one answered domain has mistakes; rows are those
+      domains sorted by pass rate ascending (the *real* weak spots).
+    - 'coverage' — every answered domain is at 100%, but some canonical
+      domains have zero answered questions; rows are the uncovered domains
+      ordered by exam weight (highest leverage first).
+    - 'none' — every canonical domain is both covered and at 100%. Nothing
+      to flag.
+
+    A domain whose answered questions are *all* correct is not a weak spot
+    — it's a strength. Calling that "weakest" was the bug.
+    """
+    accuracy_rows = con.execute(
+        """SELECT substr(domain, 1, 1) AS d,
+                  COUNT(*) AS asked,
+                  SUM(CASE WHEN judgment='correct' THEN 1 ELSE 0 END) AS correct,
+                  ROUND(1.0 * SUM(CASE WHEN judgment='correct' THEN 1 ELSE 0 END) / COUNT(*), 3) AS rate
+           FROM questions
+           WHERE judgment IS NOT NULL AND judgment != 'skipped'
+           GROUP BY d
+           HAVING rate < 1.0
+           ORDER BY rate ASC, asked DESC"""
+    ).fetchall()
+    if accuracy_rows:
+        return "accuracy", [dict(r) for r in accuracy_rows]
+
+    covered = {
+        r["d"]
+        for r in con.execute(
+            """SELECT DISTINCT substr(domain, 1, 1) AS d
+               FROM questions
+               WHERE judgment IS NOT NULL AND judgment != 'skipped'"""
+        ).fetchall()
+    }
+    uncovered = [
+        {"d": num, "name": name, "weight": weight, "asked": 0, "correct": 0, "rate": None}
+        for num, name, weight in DOMAINS
+        if num not in covered
+    ]
+    if uncovered:
+        uncovered.sort(key=lambda r: -r["weight"])  # highest exam weight first
+        return "coverage", uncovered
+
+    return "none", []
+
+
 def cmd_banner(_):
     """One-line plain-text memory signal — printed verbatim by SKILL.md.
 
@@ -114,17 +162,6 @@ def cmd_banner(_):
     partial = con.execute(
         "SELECT COUNT(*) AS n FROM questions WHERE judgment='partial'"
     ).fetchone()["n"]
-    weakest = con.execute(
-        """SELECT domain,
-                  ROUND(1.0 * SUM(CASE WHEN judgment='correct' THEN 1 ELSE 0 END) / COUNT(*), 2) AS rate,
-                  COUNT(*) AS asked
-           FROM questions
-           WHERE judgment IS NOT NULL AND judgment != 'skipped'
-           GROUP BY domain
-           HAVING asked >= 1
-           ORDER BY rate ASC, asked DESC
-           LIMIT 1"""
-    ).fetchone()
     last = con.execute(
         "SELECT asked_at FROM questions ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -133,8 +170,18 @@ def cmd_banner(_):
     parts = [f"Quiz memory: {total} answered", f"{correct} correct ({pct}%)"]
     if partial:
         parts.append(f"{partial} partial")
-    if weakest and weakest["rate"] is not None and weakest["asked"] >= 2:
-        parts.append(f"weakest: Domain {weakest['domain']}")
+
+    kind, rows = weak_spots(con)
+    if kind == "accuracy":
+        w = rows[0]
+        wrate = int(round(100 * w["rate"]))
+        parts.append(f"weak spot: Domain {w['d']} ({w['correct']}/{w['asked']}, {wrate}%)")
+    elif kind == "coverage":
+        gaps = ", ".join(f"D{r['d']}" for r in rows[:2])
+        more = "" if len(rows) <= 2 else f" (+{len(rows) - 2} more)"
+        parts.append(f"uncovered: {gaps}{more}")
+    # kind == 'none' → no weakness suffix; everything is green.
+
     if last:
         parts.append(f"last seen: {last['asked_at']}")
     print(" · ".join(parts))
@@ -286,21 +333,18 @@ def cmd_stats(_):
 
 
 def cmd_weakest(args):
+    """Real weakness, not just lowest-rate-among-answered. Returns:
+
+      {"kind": "accuracy" | "coverage" | "none", "domains": [...]}
+
+    kind=accuracy → domains where you've made mistakes; pick one of these.
+    kind=coverage → no mistakes yet, but these canonical domains are
+                    untouched; highest exam weight listed first.
+    kind=none     → every canonical domain is both covered and at 100%.
+    """
     con = connect()
-    rows = con.execute(
-        """SELECT
-              domain,
-              COUNT(*) AS asked,
-              ROUND(1.0 * SUM(CASE WHEN judgment='correct' THEN 1 ELSE 0 END) / COUNT(*), 3) AS rate
-           FROM questions
-           WHERE judgment IS NOT NULL AND judgment != 'skipped'
-           GROUP BY domain
-           HAVING asked >= ?
-           ORDER BY rate ASC, asked DESC
-           LIMIT ?""",
-        (args.min_asked, args.limit),
-    ).fetchall()
-    emit([dict(r) for r in rows])
+    kind, rows = weak_spots(con)
+    emit({"kind": kind, "domains": rows[: args.limit]})
 
 
 def cmd_recent(args):
@@ -367,9 +411,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("stats", help="aggregate counts + pass rates")
 
-    s = sub.add_parser("weakest", help="weakest domains (for theme picking)")
+    s = sub.add_parser("weakest",
+                       help="real weak spots (accuracy) or coverage gaps; for theme picking")
     s.add_argument("--limit", type=int, default=3)
-    s.add_argument("--min-asked", type=int, default=1)
 
     s = sub.add_parser("summary",
                        help="recent questions with full coaching readback (review mode)")
