@@ -164,8 +164,12 @@ def cmd_start_session(args):
 
 
 def cmd_log(args):
+    """Silent on success: exit 0 with no stdout. Errors still surface via stderr
+    + non-zero exit. The id confirmation isn't useful in the conversation; the
+    user can verify with `stats` / `recent` / `summary` if they want.
+    """
     con = connect()
-    cur = con.execute(
+    con.execute(
         """INSERT INTO questions
            (session_id, domain, task, topic, difficulty, question,
             expected_answer, user_answer, judgment, reasoning_notes,
@@ -187,7 +191,6 @@ def cmd_log(args):
         ),
     )
     con.commit()
-    emit({"question_id": cur.lastrowid, "db": str(DB_PATH)})
 
 
 def cmd_stats(_):

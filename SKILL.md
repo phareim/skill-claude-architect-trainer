@@ -92,6 +92,8 @@ This is where most skills fall down — they just hand over the answer. Don't. W
 
    You can omit `--session-id` for a quick log, or call `start-session` first if running an extended block.
 
+   **Keep this call quiet.** `log` is silent on success (no stdout). Do **not** re-run `banner` after a log — the banner is a session-start signal, not an after-every-answer one. Running extra commands just adds tool-call clutter to the user's view.
+
 4. **Offer next step.** End with a short menu: "Another in this theme? · Move to <next likely theme>? · Show progress?"
 
 ## Socratic mode — when the user is stuck
@@ -197,3 +199,4 @@ If two domains both fit, pick the one with lower pass rate (or, if no DB history
 - **Inventing course names or deep URLs.** Cite only from `references/anthropic-resources.md`. If unsure, point to the three top-level hubs (Anthropic Academy, anthropic.com/learn, platform.claude.com/docs) and the named course.
 - **Skipping the log.** The DB is the persistent record — that's the whole reason this is a skill and not just a chat.
 - **Treating "no context" as a failure.** It's fine to say "no clear conversation context — picking from <domain> because <reason>" and proceed.
+- **Spamming the user with bash output.** Each tool call appears in the user's view. The skill should make exactly **two** bash calls per turn in the normal ask→answer→coach loop: `banner` (at the very top of session-start invocations only) and `log` (silent on success, after coaching). No re-banner after log, no chatty echo statements, no extra confirmations. `stats` / `summary` / etc. are user-requested modes and may run additional calls.
