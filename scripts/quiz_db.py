@@ -3,6 +3,7 @@
 
 Subcommands:
   banner                        one-line memory signal (plain text, used at session start)
+  domains                       5-domain markdown table with per-domain answer counts (plain text)
   init                          create DB + schema (also auto-runs on every other command)
   start-session                 record a new quiz session
   log                           log one question + judgment
@@ -35,6 +36,16 @@ def resolve_db_path() -> Path:
 
 
 DB_PATH = resolve_db_path()
+
+# Canonical exam domains (number, name, weight%). Single source of truth used
+# by the `domains` subcommand so the SKILL.md / model never has to invent names.
+DOMAINS = [
+    ("1", "Agentic Architecture & Orchestration",   27),
+    ("2", "Tool Design & MCP Integration",          18),
+    ("3", "Claude Code Configuration & Workflows",  20),
+    ("4", "Prompt Engineering & Structured Output", 20),
+    ("5", "Context Management & Reliability",       15),
+]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -127,6 +138,55 @@ def cmd_banner(_):
     if last:
         parts.append(f"last seen: {last['asked_at']}")
     print(" · ".join(parts))
+
+
+def cmd_domains(_):
+    """Plain-text markdown table of the 5 exam domains + per-domain question
+    counts. Printed verbatim by SKILL.md — no JSON, no extra interpretation.
+
+    Group by leading digit of stored domain string so both '1' and
+    'Domain 1: Agentic...' aggregate the same way.
+    """
+    con = connect()
+    rows = con.execute(
+        """SELECT substr(domain, 1, 1) AS d,
+                  COUNT(*) AS asked,
+                  SUM(CASE WHEN judgment='correct'   THEN 1 ELSE 0 END) AS correct,
+                  SUM(CASE WHEN judgment='partial'   THEN 1 ELSE 0 END) AS partial,
+                  SUM(CASE WHEN judgment='incorrect' THEN 1 ELSE 0 END) AS incorrect
+           FROM questions
+           GROUP BY d"""
+    ).fetchall()
+    counts = {r["d"]: r for r in rows}
+
+    print("| # | Domain | Weight | Asked | Correct | Partial | Incorrect | Pass rate |")
+    print("|---|--------|-------:|------:|--------:|--------:|----------:|----------:|")
+    tot_a = tot_c = tot_p = tot_i = 0
+    for num, name, weight in DOMAINS:
+        r = counts.get(num)
+        a = r["asked"] if r else 0
+        c = r["correct"] if r else 0
+        p = r["partial"] if r else 0
+        i = r["incorrect"] if r else 0
+        rate = f"{int(round(100 * c / a))}%" if a else "—"
+        print(f"| {num} | {name} | {weight}% | {a} | {c} | {p} | {i} | {rate} |")
+        tot_a += a
+        tot_c += c
+        tot_p += p
+        tot_i += i
+    total_rate = f"{int(round(100 * tot_c / tot_a))}%" if tot_a else "—"
+    print(
+        f"| — | **Total** | 100% | **{tot_a}** | **{tot_c}** | "
+        f"**{tot_p}** | **{tot_i}** | **{total_rate}** |"
+    )
+
+    canonical = {n for n, _, _ in DOMAINS}
+    extras = [r for r in rows if r["d"] not in canonical]
+    if extras:
+        print()
+        print("_Tracked outside the canonical 5 (likely test data):_")
+        for r in extras:
+            print(f"- domain `{r['d']}`: {r['asked']} asked")
 
 
 def cmd_summary(args):
@@ -281,6 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="create DB + schema (auto-runs on other commands too)")
     sub.add_parser("banner", help="one-line plain-text memory signal for session start")
+    sub.add_parser("domains", help="5-domain markdown table with per-domain answer counts")
 
     s = sub.add_parser("start-session", help="record a new quiz session")
     s.add_argument("--name")
@@ -335,6 +396,7 @@ def main() -> None:
     handlers = {
         "init": cmd_init,
         "banner": cmd_banner,
+        "domains": cmd_domains,
         "start-session": cmd_start_session,
         "log": cmd_log,
         "stats": cmd_stats,

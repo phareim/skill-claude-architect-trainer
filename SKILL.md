@@ -19,6 +19,7 @@ The user is preparing for a real certification exam. Practice tests alone don't 
    - a topic word (`tools`, `mcp`, `subagents`, `claude.md`, `plan mode`, `batch`, `escalation`, `provenance`, `extraction`, …) → focus on the matching task statement
    - `easy` / `medium` / `hard` / `exam` / `exam-mode` → adjust difficulty
    - `scenario <name>` → use one of the six official exam scenarios (customer support, claude code, multi-agent research, developer productivity, ci/cd, extraction)
+   - `domains` / `table` / `dashboard` → print the canonical 5-domain table with weights and per-domain answer counts (asked, correct, partial, incorrect, pass rate); no question
    - `stats` / `progress` → numeric overview (counts + per-domain pass rates), no question
    - `summary` / `feedback` / `review` → narrative readback of recent questions, your answers, and the coaching notes; no question. `review` defaults to this; if ambiguous, ask the user which they meant.
    - `weakest` → ask a question in the domain with the worst pass rate
@@ -105,6 +106,16 @@ If the user says "I don't know", "skip", or gives a clearly random guess, **do n
 
 Only reveal the full answer after the user makes a real attempt or explicitly says "just tell me". When you do reveal, still walk the reasoning — don't dump.
 
+## `domains` / `table` / `dashboard` mode — exam map with live counts
+
+Don't ask a question — just run:
+
+```bash
+python3 scripts/quiz_db.py domains
+```
+
+The script emits a ready-rendered markdown table (5 rows + total) showing each domain's exam weight alongside your per-domain answer counts. Print its output **verbatim**, no reformatting and no extra commentary. Optionally follow with one sentence pointing the user to their thinnest-covered domain (the row with the lowest *Asked* count where weight is high) as a study suggestion — but only one sentence.
+
 ## `stats` / `progress` mode — numeric readout
 
 Don't ask a question — instead run:
@@ -182,7 +193,7 @@ If two domains both fit, pick the one with lower pass rate (or, if no DB history
 ## Database
 
 - Path resolution: `$CLAUDE_QUIZ_DB` if set, else `~/.claude/data/claude-quiz.db`. The DB lives outside the repo so progress doesn't get committed; the user syncs across machines on their own terms.
-- Schema and CLI in `scripts/quiz_db.py`. Subcommands: `banner`, `init`, `start-session`, `log`, `stats`, `weakest`, `summary`, `recent`, `show`, `export`.
+- Schema and CLI in `scripts/quiz_db.py`. Subcommands: `banner`, `domains`, `init`, `start-session`, `log`, `stats`, `weakest`, `summary`, `recent`, `show`, `export`.
 - Every command auto-creates the DB + schema if missing — no separate `init` step needed. Run `banner` at the start of each invocation for the user-facing "I remember you" signal.
 
 ## References
