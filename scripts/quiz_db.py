@@ -13,7 +13,8 @@ Subcommands:
 
 DB path resolution order:
   1. $CLAUDE_QUIZ_DB if set
-  2. <repo>/data/quiz.db  (default — sits next to the skill)
+  2. ~/.claude/data/claude-quiz.db  (default — outside the repo so progress
+     isn't committed; user syncs across machines on their own terms)
 """
 from __future__ import annotations
 
@@ -28,8 +29,7 @@ from pathlib import Path
 def resolve_db_path() -> Path:
     if env := os.environ.get("CLAUDE_QUIZ_DB"):
         return Path(env).expanduser()
-    # default: <skill-repo-root>/data/quiz.db
-    return Path(__file__).resolve().parent.parent / "data" / "quiz.db"
+    return Path("~/.claude/data/claude-quiz.db").expanduser()
 
 
 DB_PATH = resolve_db_path()

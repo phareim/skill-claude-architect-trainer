@@ -147,7 +147,7 @@ If two domains both fit, pick the one with lower pass rate (or, if no DB history
 
 ## Database
 
-- Path resolution: `$CLAUDE_QUIZ_DB` if set, else `<repo>/data/quiz.db`.
+- Path resolution: `$CLAUDE_QUIZ_DB` if set, else `~/.claude/data/claude-quiz.db`. The DB lives outside the repo so progress doesn't get committed; the user syncs across machines on their own terms.
 - Schema and CLI in `scripts/quiz_db.py`. Subcommands: `init`, `start-session`, `log`, `stats`, `weakest`, `recent`, `show`, `export`.
 - Always run `init` once per session before logging — it creates the schema if missing.
 
