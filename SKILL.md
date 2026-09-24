@@ -59,7 +59,7 @@ The user is preparing for a real certification exam. Practice tests alone don't 
    <if exam-mode: four options A/B/C/D, no answer key>
    ```
 
-   Do NOT continue past this. Do NOT pre-answer. Wait for the user's reply.
+   Stop there and wait for the user's reply; the answer and any hints come after they attempt it.
 
 ## When the user answers
 

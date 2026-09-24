@@ -188,6 +188,7 @@ When picking questions and no other signal exists, weight by these percentages.
 - Schema design: required vs optional fields; enum + `"other"` + detail string for extensibility; nullable for fields that may genuinely be absent.
 - Set `tool_choice: any` when multiple extraction schemas exist and document type is unknown.
 - Force specific tool when ordering matters (`extract_metadata` before enrichment).
+- Current API, not exam content (verified 2026-09-24): on Claude Opus 5.5 and Claude Fable 5.1, `tool_choice` `any` and `{"type":"tool"}` return a 400. The exam still expects the answers above (and in 2.3); when tying them to current code on those models, point to `auto` + `strict: true` with the tool named in the prompt and a check that the call happened, or to structured outputs for extraction.
 - Nullable fields prevent the model fabricating values to satisfy required fields.
 
 **4.4 Implement validation, retry, and feedback loops for extraction quality**
